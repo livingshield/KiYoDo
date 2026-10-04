@@ -1,9 +1,16 @@
 $ErrorActionPreference = "Stop"
 
-# Load FTP credentials from local untracked file (ftp_credentials.local.ps1) or environment variables
-$localCreds = Join-Path $PSScriptRoot "ftp_credentials.local.ps1"
-if (Test-Path $localCreds) {
-    . $localCreds
+# Load FTP credentials from local untracked file (JSON or PS1) or environment variables
+$jsonCreds = Join-Path $PSScriptRoot "ftp_credentials.local.json"
+$psCreds = Join-Path $PSScriptRoot "ftp_credentials.local.ps1"
+
+if (Test-Path $jsonCreds) {
+    $cfg = Get-Content $jsonCreds -Raw | ConvertFrom-Json
+    $ftpServer = if ($cfg.ftpServer) { $cfg.ftpServer } else { "windows11.aspone.cz" }
+    $ftpUser = $cfg.ftpUser
+    $ftpPass = $cfg.ftpPass
+} elseif (Test-Path $psCreds) {
+    . $psCreds
 } else {
     $ftpServer = if ($env:FTP_SERVER) { $env:FTP_SERVER } else { "windows11.aspone.cz" }
     $ftpUser = $env:FTP_USER
@@ -11,7 +18,7 @@ if (Test-Path $localCreds) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ftpUser) -or [string]::IsNullOrWhiteSpace($ftpPass)) {
-    Write-Error "Chybí FTP přihlašovací údaje! Vytvořte soubor ftp_credentials.local.ps1 (viz ftp_credentials.example.ps1) nebo nastavte proměnné prostředí FTP_USER a FTP_PASS."
+    Write-Error "Chybí FTP přihlašovací údaje! Vytvořte soubor ftp_credentials.local.json (viz ftp_credentials.example.json) nebo nastavte proměnné prostředí FTP_USER a FTP_PASS."
     exit 1
 }
 
