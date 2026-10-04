@@ -1,0 +1,6 @@
+{
+  "name": "YT Downloader PC - MP3 & MP4",
+  "description": "Rychlý a spolehlivý stahovač hudby (MP3) a videa (MP4) z YouTube přímo do vašeho počítače.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
