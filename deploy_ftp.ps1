@@ -171,8 +171,8 @@ foreach ($targetRoot in $targetRoots) {
     Create-FtpDirectorySafe "ftp://$ftpServer/$targetRoot/backgrounds"
     Create-FtpDirectorySafe "ftp://$ftpServer/$targetRoot/api"
 
-    # Upload files in root dist
-    Get-ChildItem -Path $localDist -File | ForEach-Object {
+    # Upload files in root dist (strictly excluding any .exe)
+    Get-ChildItem -Path $localDist -File | Where-Object { $_.Extension -ne ".exe" } | ForEach-Object {
         $destUri = "ftp://$ftpServer/$targetRoot/$($_.Name)"
         Upload-FtpFile $_.FullName $destUri
     }
@@ -180,7 +180,7 @@ foreach ($targetRoot in $targetRoots) {
     # Upload files in dist/assets
     $localAssets = Join-Path $localDist "assets"
     if (Test-Path $localAssets) {
-        Get-ChildItem -Path $localAssets -File | ForEach-Object {
+        Get-ChildItem -Path $localAssets -File | Where-Object { $_.Extension -ne ".exe" } | ForEach-Object {
             $destUri = "ftp://$ftpServer/$targetRoot/assets/$($_.Name)"
             Upload-FtpFile $_.FullName $destUri
         }
@@ -189,7 +189,7 @@ foreach ($targetRoot in $targetRoots) {
     # Upload files in dist/backgrounds
     $localBg = Join-Path $localDist "backgrounds"
     if (Test-Path $localBg) {
-        Get-ChildItem -Path $localBg -File | ForEach-Object {
+        Get-ChildItem -Path $localBg -File | Where-Object { $_.Extension -ne ".exe" } | ForEach-Object {
             $destUri = "ftp://$ftpServer/$targetRoot/backgrounds/$($_.Name)"
             Upload-FtpFile $_.FullName $destUri
         }
@@ -198,7 +198,7 @@ foreach ($targetRoot in $targetRoots) {
     # Upload files in dist/api
     $localApi = Join-Path $localDist "api"
     if (Test-Path $localApi) {
-        Get-ChildItem -Path $localApi -File | ForEach-Object {
+        Get-ChildItem -Path $localApi -File | Where-Object { $_.Extension -ne ".exe" } | ForEach-Object {
             $destUri = "ftp://$ftpServer/$targetRoot/api/$($_.Name)"
             Upload-FtpFile $_.FullName $destUri
         }
