@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Search, 
   Sparkles, 
@@ -27,8 +27,13 @@ import {
   Bookmark
 } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
-import { VideoSearchResult, UserPreferences } from '../types';
-import { searchYouTubeVideos, fetchSearchSuggestions, parseRelativeTimeToSeconds } from '../utils/youtube';
+import { VideoSearchResult, UserPreferences, DurationFilter } from '../types';
+import { 
+  searchYouTubeVideos, 
+  fetchSearchSuggestions, 
+  parseRelativeTimeToSeconds,
+  matchesDurationFilter 
+} from '../utils/youtube';
 import { AddToBookmarkModal } from './AddToBookmarkModal';
 
 interface YouTubeSearchProps {
@@ -54,6 +59,7 @@ interface CachedSearchState {
   results: VideoSearchResult[];
   continuation: string | null;
   sortBy: 'date' | 'relevance';
+  durationFilter?: DurationFilter;
   hasSearched: boolean;
 }
 
@@ -70,6 +76,15 @@ const getCachedSearchState = (): CachedSearchState | null => {
   }
   return null;
 };
+
+export const DURATION_FILTERS: { id: DurationFilter; labelKey: keyof typeof translations.cs; range: string }[] = [
+  { id: 'all', labelKey: 'searchDurationAll', range: '' },
+  { id: '0-4', labelKey: 'searchDuration0_4', range: '0–4 min' },
+  { id: '4-8', labelKey: 'searchDuration4_8', range: '4–8 min' },
+  { id: '8-16', labelKey: 'searchDuration8_16', range: '8–16 min' },
+  { id: '16-50', labelKey: 'searchDuration16_50', range: '16–50 min' },
+  { id: '50+', labelKey: 'searchDuration50Plus', range: '50+ min' },
+];
 
 const SEARCH_CATEGORIES_CS: SearchCategoryItem[] = [
   { id: 'ai', label: 'AI novinky', query: 'AI novinky', icon: Bot, description: 'Umělá inteligence, novinky a trendy' },
@@ -104,6 +119,7 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
   const [results, setResults] = useState<VideoSearchResult[]>(() => cachedState?.results || []);
   const [continuation, setContinuation] = useState<string | null>(() => cachedState?.continuation ?? null);
   const [sortBy, setSortBy] = useState<'date' | 'relevance'>(() => cachedState?.sortBy || 'date');
+  const [durationFilter, setDurationFilter] = useState<DurationFilter>(() => cachedState?.durationFilter || 'all');
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasSearched, setHasSearched] = useState<boolean>(() => cachedState?.hasSearched || (Boolean(cachedState?.results?.length)));
@@ -123,6 +139,30 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
 
   const categories = lang === 'cs' ? SEARCH_CATEGORIES_CS : SEARCH_CATEGORIES_EN;
 
+  const durationCounts = useMemo(() => {
+    const counts: Record<DurationFilter, number> = {
+      'all': results.length,
+      '0-4': 0,
+      '4-8': 0,
+      '8-16': 0,
+      '16-50': 0,
+      '50+': 0,
+    };
+    for (const v of results) {
+      for (const f of ['0-4', '4-8', '8-16', '16-50', '50+'] as const) {
+        if (matchesDurationFilter(v, f)) {
+          counts[f]++;
+        }
+      }
+    }
+    return counts;
+  }, [results]);
+
+  const filteredResults = useMemo(() => {
+    if (durationFilter === 'all') return results;
+    return results.filter((video) => matchesDurationFilter(video, durationFilter));
+  }, [results, durationFilter]);
+
   const saveSearchState = (stateToSave: Partial<CachedSearchState>) => {
     try {
       const current: CachedSearchState = {
@@ -130,6 +170,7 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
         results: stateToSave.results !== undefined ? stateToSave.results : results,
         continuation: stateToSave.continuation !== undefined ? stateToSave.continuation : continuation,
         sortBy: stateToSave.sortBy !== undefined ? stateToSave.sortBy : sortBy,
+        durationFilter: stateToSave.durationFilter !== undefined ? stateToSave.durationFilter : durationFilter,
         hasSearched: stateToSave.hasSearched !== undefined ? stateToSave.hasSearched : hasSearched,
       };
       const serialized = JSON.stringify(current);
@@ -495,48 +536,138 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
       {/* Search Results Grid */}
       {!isLoading && hasSearched && results.length > 0 && (
         <div className="space-y-4 max-w-6xl mx-auto">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <span>{t.searchResultsFor}</span>
-              <span className="text-amber-500 font-bold">"{query}"</span>
-              <span className="text-xs font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                {results.length} videí
-              </span>
-            </h3>
+          {/* Top Controls: Title, Counts, Sorting and Duration Filters */}
+          <div className="flex flex-col gap-3 px-1">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <span>{t.searchResultsFor}</span>
+                <span className="text-amber-500 font-bold">"{query}"</span>
+                <span className="text-xs font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                  {durationFilter === 'all'
+                    ? `${results.length} videí`
+                    : `${filteredResults.length} z ${results.length} videí`}
+                </span>
+              </h3>
 
-            {/* Sort Toggle: Od nejnovějších (default) / Dle relevance */}
-            <div className="inline-flex items-center rounded-xl p-0.5 border text-xs" style={{ backgroundColor: 'var(--panel-surface)', borderColor: 'var(--panel-border)' }}>
-              <button
-                type="button"
-                onClick={() => handleSortChange('date')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                  sortBy === 'date' 
-                    ? 'bg-amber-500 text-white shadow-xs font-bold' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Řadit od nejnovějších videí po nejstarší"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>{t.searchSortDate}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSortChange('relevance')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                  sortBy === 'relevance' 
-                    ? 'bg-amber-500 text-white shadow-xs font-bold' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Řadit dle relevance YouTube algoritmu"
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>{t.searchSortRelevance}</span>
-              </button>
+              {/* Sort Toggle: Od nejnovějších (default) / Dle relevance */}
+              <div className="inline-flex items-center rounded-xl p-0.5 border text-xs" style={{ backgroundColor: 'var(--panel-surface)', borderColor: 'var(--panel-border)' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSortChange('date')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    sortBy === 'date' 
+                      ? 'bg-amber-500 text-white shadow-xs font-bold' 
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Řadit od nejnovějších videí po nejstarší"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{t.searchSortDate}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSortChange('relevance')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    sortBy === 'relevance' 
+                      ? 'bg-amber-500 text-white shadow-xs font-bold' 
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Řadit dle relevance YouTube algoritmu"
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  <span>{t.searchSortRelevance}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Duration Filter Chips */}
+            <div 
+              className="flex flex-wrap items-center gap-1.5 p-2 rounded-2xl border text-xs shadow-xs"
+              style={{ backgroundColor: 'var(--panel-surface)', borderColor: 'var(--panel-border)' }}
+            >
+              <span className="flex items-center gap-1 font-semibold mr-1 pl-1" style={{ color: 'var(--text-muted)' }}>
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span>{t.searchFilterDuration}</span>
+              </span>
+              {DURATION_FILTERS.map((f) => {
+                const count = durationCounts[f.id];
+                const isActive = durationFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setDurationFilter(f.id);
+                      saveSearchState({ durationFilter: f.id });
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-500 text-white font-bold border-amber-600 shadow-xs'
+                        : count === 0
+                          ? 'opacity-40 hover:opacity-75 hover:border-amber-500/30'
+                          : 'hover:border-amber-500/50'
+                    }`}
+                    style={!isActive ? {
+                      backgroundColor: 'var(--panel-bg)',
+                      borderColor: 'var(--panel-border)',
+                      color: 'var(--text-primary)'
+                    } : undefined}
+                    title={f.id === 'all' ? t.searchDurationAll : `Filtrovat videa o délce ${f.range}`}
+                  >
+                    <span>{t[f.labelKey]}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                      isActive ? 'bg-black/25 text-white' : 'bg-black/10 dark:bg-white/10 text-slate-400'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {results.map((video) => (
+          {/* Empty state when duration filter matches 0 videos */}
+          {filteredResults.length === 0 ? (
+            <div 
+              className="max-w-md mx-auto text-center py-10 px-5 rounded-2xl border my-4"
+              style={{ backgroundColor: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+            >
+              <Clock className="w-10 h-10 mx-auto mb-3 text-amber-500 opacity-80" />
+              <h4 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+                {t.searchNoDurationMatch}
+              </h4>
+              <p className="mt-1.5 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                {lang === 'cs'
+                  ? `V rozsahu ${DURATION_FILTERS.find(f => f.id === durationFilter)?.range || ''} není žádné video z aktuálně načtených ${results.length} výsledků.`
+                  : `No videos found in this range among the ${results.length} loaded results.`}
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDurationFilter('all');
+                    saveSearchState({ durationFilter: 'all' });
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-500 text-white shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
+                >
+                  {t.searchDurationAll}
+                </button>
+                {continuation && (
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer hover:opacity-85 transition-opacity"
+                    style={{ borderColor: 'var(--panel-border)', color: 'var(--text-primary)' }}
+                  >
+                    {isLoadingMore ? t.searchLoadingMore : t.searchLoadMore}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {filteredResults.map((video) => (
               <div
                 key={video.id}
                 className="group flex flex-col border hover:border-slate-300 rounded-2xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-200"
@@ -682,6 +813,7 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
               </div>
             ))}
           </div>
+          )}
 
           {/* Pagination / Load More Button */}
           {continuation && (
@@ -710,7 +842,9 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
                 )}
               </button>
               <span className="mt-2 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-                {t.searchShowingVideos}: {results.length} videí
+                {durationFilter === 'all'
+                  ? `${t.searchShowingVideos}: ${results.length} videí`
+                  : `${t.searchShowingVideos}: ${filteredResults.length} z ${results.length} videí`}
               </span>
             </div>
           )}

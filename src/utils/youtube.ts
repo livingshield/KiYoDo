@@ -9,7 +9,8 @@ import {
   PlaylistInfo, 
   VideoChapter,
   AudioBoostOption,
-  MediaPlatform
+  MediaPlatform,
+  DurationFilter
 } from '../types';
 import { notifyDownloadTriggered } from './versionCheck';
 
@@ -825,6 +826,65 @@ export function parseRelativeTimeToSeconds(text?: string): number {
   }
 
   return Infinity;
+}
+
+/**
+ * Parses a duration string (e.g. "10:53", "1:17:00", "45", "3:10:03") into total seconds.
+ * Returns -1 if duration is missing or unparseable.
+ */
+export function parseDurationToSeconds(durationStr?: string): number {
+  if (!durationStr || durationStr === 'Neznámá' || durationStr === 'Unknown') return -1;
+  const parts = durationStr.trim().split(':').map(p => parseInt(p, 10));
+  if (parts.some(isNaN)) return -1;
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  return -1;
+}
+
+/**
+ * Checks whether a video matches the given DurationFilter range.
+ * Supported ranges (in minutes):
+ * - 'all': all videos
+ * - '0-4': 0 to 4 minutes (< 240s)
+ * - '4-8': 4 to 8 minutes (>= 240s and < 480s)
+ * - '8-16': 8 to 16 minutes (>= 480s and < 960s)
+ * - '16-50': 16 to 50 minutes (>= 960s and < 3000s)
+ * - '50+': 50 minutes and longer (>= 3000s)
+ */
+export function matchesDurationFilter(
+  video: { duration?: string; durationSeconds?: number },
+  filter: DurationFilter = 'all'
+): boolean {
+  if (filter === 'all') return true;
+
+  const sec = typeof video.durationSeconds === 'number' && video.durationSeconds > 0
+    ? video.durationSeconds
+    : parseDurationToSeconds(video.duration);
+
+  // If specific duration filter is active but video duration is unknown, exclude it
+  if (sec < 0) return false;
+
+  switch (filter) {
+    case '0-4':
+      return sec < 4 * 60;
+    case '4-8':
+      return sec >= 4 * 60 && sec < 8 * 60;
+    case '8-16':
+      return sec >= 8 * 60 && sec < 16 * 60;
+    case '16-50':
+      return sec >= 16 * 60 && sec < 50 * 60;
+    case '50+':
+      return sec >= 50 * 60;
+    default:
+      return true;
+  }
 }
 
 /**

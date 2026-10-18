@@ -94,12 +94,15 @@ export interface PlaylistInfo {
   videos: PlaylistItem[];
 }
 
+export type DurationFilter = 'all' | '0-4' | '4-8' | '8-16' | '16-50' | '50+';
+
 export interface VideoSearchResult {
   id: string;
   url: string;
   title: string;
   author: string;
   duration?: string;
+  durationSeconds?: number;
   viewCount?: string;
   publishedTime?: string;
   uploadDate?: string;
