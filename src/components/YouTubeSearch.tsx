@@ -40,6 +40,7 @@ interface YouTubeSearchProps {
   lang: Language;
   preferences: UserPreferences;
   onSelectVideo: (url: string, preferredFormat?: 'mp3' | 'mp4') => void;
+  onRecordWatch?: (video: VideoSearchResult) => void;
   initialQuery?: string;
   onQueryChange?: (query: string) => void;
 }
@@ -109,6 +110,7 @@ const SEARCH_CATEGORIES_EN: SearchCategoryItem[] = [
 export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
   lang,
   onSelectVideo,
+  onRecordWatch,
   initialQuery = '',
   onQueryChange,
 }) => {
@@ -694,7 +696,10 @@ export const YouTubeSearch: React.FC<YouTubeSearchProps> = ({
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-xs">
                     <button
                       type="button"
-                      onClick={() => setPreviewVideo(video)}
+                      onClick={() => {
+                        setPreviewVideo(video);
+                        if (onRecordWatch) onRecordWatch(video);
+                      }}
                       className="p-3 rounded-full bg-white/90 hover:bg-white text-slate-900 shadow-xl transform scale-90 group-hover:scale-100 transition-all cursor-pointer"
                       title="Přehrát náhled"
                     >

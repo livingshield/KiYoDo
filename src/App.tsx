@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Header 
 } from './components/Header';
@@ -39,6 +39,8 @@ import {
   PlaylistInfo,
   DownloadFormat, 
   DownloadHistoryItem,
+  WatchHistoryItem,
+  VideoSearchResult,
   UserPreferences,
   DEFAULT_USER_PREFERENCES,
   ThemeId
@@ -63,6 +65,7 @@ import {
 import { 
   AlertCircle, 
   ArrowRight,
+  ArrowLeft,
   HardDrive,
   Settings,
   Search,
@@ -90,8 +93,18 @@ import { checkRemoteVersion, isAppRunningStandalone } from './utils/versionCheck
 import { APP_VERSION } from './version';
 
 const LOCAL_STORAGE_HISTORY_KEY = 'yt_downloader_pc_history';
+const LOCAL_STORAGE_WATCH_HISTORY_KEY = 'kiyodo_watch_history';
 const LOCAL_STORAGE_LANG_KEY = 'yt_downloader_pc_lang';
 const LOCAL_STORAGE_PREFS_KEY = 'yt_downloader_user_preferences';
+
+export interface VideoStackItem {
+  videoId: string;
+  url: string;
+  title: string;
+  author: string;
+  thumbnailUrl: string;
+  duration?: string;
+}
 
 const DEFAULT_INITIAL_URL = 'https://www.youtube.com/watch?v=EBXq5N7wGgA&list=RDEBXq5N7wGgA&start_radio=1';
 
@@ -135,6 +148,20 @@ export default function App() {
       return [];
     }
   });
+
+  const [watchHistory, setWatchHistory] = useState<WatchHistoryItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_WATCH_HISTORY_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Navigation history stack for watched videos
+  const [videoStack, setVideoStack] = useState<VideoStackItem[]>([]);
+  const [stackIndex, setStackIndex] = useState<number>(-1);
+  const isNavigatingRef = useRef(false);
 
   const [isMobileToolsOpen, setIsMobileToolsOpen] = useState(false);
   const t = translations[lang];
@@ -181,6 +208,14 @@ export default function App() {
       // Storage quota or disabled
     }
   }, [history]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_WATCH_HISTORY_KEY, JSON.stringify(watchHistory));
+    } catch {
+      // Storage quota or disabled
+    }
+  }, [watchHistory]);
 
   const toggleLanguage = () => {
     setLang((prev) => (prev === 'cs' ? 'en' : 'cs'));
@@ -239,6 +274,8 @@ export default function App() {
     try {
       const info = await fetchVideoDetails(trimmed);
       setVideoInfo(info);
+      recordWatchHistory(info);
+      pushToVideoStack(info);
       setActiveTab('single');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Nepodařilo se načíst video.';
@@ -247,6 +284,158 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const recordWatchHistory = (info: VideoInfo | VideoSearchResult | { id: string; url?: string; title: string; author: string; thumbnailUrl: string; duration?: string; platform?: any }) => {
+    const videoId = info.id;
+    const targetUrl = 'url' in info && info.url ? info.url : `https://www.youtube.com/watch?v=${videoId}`;
+    const newItem: WatchHistoryItem = {
+      id: `${videoId}_${Date.now()}`,
+      videoId,
+      url: targetUrl,
+      title: info.title,
+      author: info.author,
+      thumbnailUrl: info.thumbnailUrl,
+      duration: info.duration,
+      timestamp: Date.now(),
+      platform: 'platform' in info ? info.platform : 'youtube',
+    };
+    setWatchHistory((prev) => {
+      const filtered = prev.filter((item) => item.videoId !== videoId);
+      return [newItem, ...filtered.slice(0, 99)];
+    });
+  };
+
+  const pushToVideoStack = (info: VideoInfo) => {
+    if (isNavigatingRef.current) return;
+    setVideoStack((prev) => {
+      const base = stackIndex >= 0 ? prev.slice(0, stackIndex + 1) : [];
+      if (base.length > 0 && base[base.length - 1].videoId === info.id) return base;
+      const next = [
+        ...base,
+        {
+          videoId: info.id,
+          url: info.url,
+          title: info.title,
+          author: info.author,
+          thumbnailUrl: info.thumbnailUrl,
+          duration: info.duration,
+        }
+      ];
+      setStackIndex(next.length - 1);
+      return next;
+    });
+  };
+
+  const effectivePreviousVideo = useMemo(() => {
+    if (stackIndex > 0 && videoStack[stackIndex - 1]) {
+      return videoStack[stackIndex - 1];
+    }
+    const prevWatch = watchHistory.find((item) => item.videoId !== videoInfo?.id);
+    if (prevWatch) {
+      return {
+        videoId: prevWatch.videoId,
+        url: prevWatch.url,
+        title: prevWatch.title,
+        author: prevWatch.author,
+        thumbnailUrl: prevWatch.thumbnailUrl,
+        duration: prevWatch.duration,
+      };
+    }
+    return null;
+  }, [stackIndex, videoStack, watchHistory, videoInfo?.id]);
+
+  const effectiveNextVideo = useMemo(() => {
+    if (stackIndex >= 0 && stackIndex < videoStack.length - 1 && videoStack[stackIndex + 1]) {
+      return videoStack[stackIndex + 1];
+    }
+    return null;
+  }, [stackIndex, videoStack]);
+
+  const recentWatchedVideos = useMemo(() => {
+    return watchHistory.filter((item) => item.videoId !== videoInfo?.id).slice(0, 8);
+  }, [watchHistory, videoInfo?.id]);
+
+  const handleSelectVideo = async (targetUrl: string, preferredFormat?: DownloadFormat) => {
+    setUrl(targetUrl);
+    if (preferredFormat && preferredFormat !== preferences.defaultFormat) {
+      setPreferences((prev) => ({ ...prev, defaultFormat: preferredFormat }));
+    }
+    setActiveTab('single');
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const info = await fetchVideoDetails(targetUrl);
+      setVideoInfo(info);
+      recordWatchHistory(info);
+      pushToVideoStack(info);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Nepodařilo se načíst video.';
+      setErrorMessage(message);
+      setVideoInfo(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBackToPreviousVideo = async () => {
+    if (stackIndex > 0) {
+      const target = videoStack[stackIndex - 1];
+      setStackIndex(stackIndex - 1);
+      isNavigatingRef.current = true;
+      setUrl(target.url);
+      setActiveTab('single');
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const info = await fetchVideoDetails(target.url);
+        setVideoInfo(info);
+        recordWatchHistory(info);
+      } catch (err: unknown) {
+        setErrorMessage(err instanceof Error ? err.message : 'Nepodařilo se načíst video.');
+      } finally {
+        setIsLoading(false);
+        isNavigatingRef.current = false;
+      }
+    } else if (effectivePreviousVideo) {
+      handleSelectVideo(effectivePreviousVideo.url);
+    }
+  };
+
+  const handleForwardVideo = async () => {
+    if (stackIndex >= 0 && stackIndex < videoStack.length - 1) {
+      const target = videoStack[stackIndex + 1];
+      setStackIndex(stackIndex + 1);
+      isNavigatingRef.current = true;
+      setUrl(target.url);
+      setActiveTab('single');
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const info = await fetchVideoDetails(target.url);
+        setVideoInfo(info);
+        recordWatchHistory(info);
+      } catch (err: unknown) {
+        setErrorMessage(err instanceof Error ? err.message : 'Nepodařilo se načíst video.');
+      } finally {
+        setIsLoading(false);
+        isNavigatingRef.current = false;
+      }
+    }
+  };
+
+  const handleClearWatchHistory = () => {
+    setWatchHistory([]);
+    localStorage.removeItem(LOCAL_STORAGE_WATCH_HISTORY_KEY);
+  };
+
+  const handleRemoveWatchItem = (id: string) => {
+    setWatchHistory((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleRemoveDownloadItem = (id: string) => {
+    setHistory((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleLoadPlaylist = async (playlistUrlOrId: string) => {
@@ -273,6 +462,8 @@ export default function App() {
     try {
       const info = await fetchVideoDetails(videoUrl);
       setVideoInfo(info);
+      recordWatchHistory(info);
+      pushToVideoStack(info);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Nepodařilo se načíst video.';
       setErrorMessage(message);
@@ -286,7 +477,6 @@ export default function App() {
     setActiveTab('batch');
   };
 
-
   const handleSelectFromSearch = async (videoUrl: string, preferredFormat?: DownloadFormat) => {
     setUrl(videoUrl);
     if (preferredFormat && preferredFormat !== preferences.defaultFormat) {
@@ -299,6 +489,8 @@ export default function App() {
     try {
       const info = await fetchVideoDetails(videoUrl);
       setVideoInfo(info);
+      recordWatchHistory(info);
+      pushToVideoStack(info);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Nepodařilo se načíst video.';
       setErrorMessage(message);
@@ -430,6 +622,7 @@ export default function App() {
       fetchVideoDetails(DEFAULT_INITIAL_URL)
         .then((info) => {
           setVideoInfo(info);
+          pushToVideoStack(info);
         })
         .catch(() => {
           // Silent fallback
@@ -665,7 +858,7 @@ export default function App() {
                         <History className="w-4 h-4 text-amber-400" />
                         <span>{t.navHistory}</span>
                       </div>
-                      {history.length > 0 && (
+                      {(watchHistory.length + history.length) > 0 && (
                         <span 
                           className="px-1.5 py-0.2 text-[10px] font-mono rounded font-bold border"
                           style={{
@@ -674,7 +867,7 @@ export default function App() {
                             borderColor: 'var(--panel-border)',
                           }}
                         >
-                          {history.length}
+                          {watchHistory.length + history.length}
                         </span>
                       )}
                     </button>
@@ -824,7 +1017,7 @@ export default function App() {
           >
             <Layers className="w-3.5 h-3.5" />
             <span>{t.navTools || (lang === 'cs' ? 'Nástroje' : 'Tools')}</span>
-            {history.length > 0 && (
+            {(watchHistory.length + history.length) > 0 && (
               <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent-primary)' }} />
             )}
           </button>
@@ -890,6 +1083,31 @@ export default function App() {
               </div>
             )}
 
+            {/* Quick return banner when no video is loaded but previous video exists */}
+            {!videoInfo && !isLoading && effectivePreviousVideo && (
+              <div 
+                className="flex items-center justify-between p-3.5 rounded-xl border shadow-xs"
+                style={{ backgroundColor: 'var(--panel-surface)', borderColor: 'var(--panel-border)' }}
+              >
+                <div className="flex items-center gap-2 text-xs min-w-0" style={{ color: 'var(--text-muted)' }}>
+                  <History className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="shrink-0 font-medium">{t.backToPreviousVideo}:</span>
+                  <span className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                    {effectivePreviousVideo.title}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBackToPreviousVideo}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:opacity-90 shrink-0 shadow-xs"
+                  style={{ backgroundColor: 'var(--accent-primary)', color: 'var(--accent-contrast)' }}
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>{t.backToPreviousVideo}</span>
+                </button>
+              </div>
+            )}
+
             {/* Video Result Preview Card */}
             {videoInfo && !isLoading && (
               <VideoPreviewCard
@@ -899,6 +1117,12 @@ export default function App() {
                 onUpdatePreferences={handleSavePreferences}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onRecordDownload={handleRecordDownload}
+                onBackToPreviousVideo={handleBackToPreviousVideo}
+                onForwardVideo={handleForwardVideo}
+                previousVideo={effectivePreviousVideo}
+                nextVideo={effectiveNextVideo}
+                recentWatchedVideos={recentWatchedVideos}
+                onSelectRecentVideo={handleSelectVideo}
               />
             )}
           </div>
@@ -990,6 +1214,7 @@ export default function App() {
             lang={lang}
             preferences={preferences}
             onSelectVideo={handleSelectFromSearch}
+            onRecordWatch={recordWatchHistory}
             initialQuery={searchQuery}
             onQueryChange={setSearchQuery}
           />
@@ -1015,8 +1240,13 @@ export default function App() {
         {/* Tab 4: History */}
         {activeTab === 'history' && (
           <DownloadHistory
-            history={history}
-            onClearHistory={handleClearHistory}
+            watchHistory={watchHistory}
+            downloadHistory={history}
+            onSelectVideo={handleSelectVideo}
+            onClearWatchHistory={handleClearWatchHistory}
+            onClearDownloadHistory={handleClearHistory}
+            onRemoveWatchItem={handleRemoveWatchItem}
+            onRemoveDownloadItem={handleRemoveDownloadItem}
             lang={lang}
           />
         )}

@@ -43,7 +43,12 @@ import {
   Volume2,
   Sliders,
   Headphones,
-  Bookmark
+  Bookmark,
+  SkipBack,
+  SkipForward,
+  ArrowLeft,
+  ArrowRight,
+  History
 } from 'lucide-react';
 import { 
   VideoInfo, 
@@ -53,7 +58,8 @@ import {
   UserPreferences,
   VideoChapter,
   VideoSubtitleTrack,
-  AudioBoostOption
+  AudioBoostOption,
+  WatchHistoryItem
 } from '../types';
 import { Language, translations } from '../utils/translations';
 import { 
@@ -82,6 +88,12 @@ interface VideoPreviewCardProps {
   onUpdatePreferences?: (prefs: UserPreferences) => void;
   onOpenSettings?: () => void;
   onRecordDownload: (video: VideoInfo, format: DownloadFormat, quality: string, engineName: string) => void;
+  onBackToPreviousVideo?: () => void;
+  onForwardVideo?: () => void;
+  previousVideo?: { title: string; url: string; duration?: string; thumbnailUrl?: string } | null;
+  nextVideo?: { title: string; url: string; duration?: string; thumbnailUrl?: string } | null;
+  recentWatchedVideos?: WatchHistoryItem[];
+  onSelectRecentVideo?: (url: string) => void;
 }
 
 const parseDurationToSeconds = (durStr?: string, durSec?: number): number => {
@@ -113,11 +125,20 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
   onUpdatePreferences,
   onOpenSettings,
   onRecordDownload,
+  onBackToPreviousVideo,
+  onForwardVideo,
+  previousVideo,
+  nextVideo,
+  recentWatchedVideos,
+  onSelectRecentVideo,
 }) => {
   const t = translations[lang];
 
   const playerRef = useRef<HTMLVideoElement | null>(null);
   const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const recentMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [isRecentMenuOpen, setIsRecentMenuOpen] = useState(false);
 
   const [format, setFormat] = useState<DownloadFormat>(preferences.defaultFormat);
   const [audioQuality, setAudioQuality] = useState<AudioQuality>(preferences.defaultAudioQuality);
@@ -466,6 +487,21 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showQualityMenu]);
+
+  // Close recent watched videos menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (recentMenuRef.current && !recentMenuRef.current.contains(e.target as Node)) {
+        setIsRecentMenuOpen(false);
+      }
+    };
+    if (isRecentMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isRecentMenuOpen]);
 
   const handleQualityChange = (selectedQualityId: string) => {
     setPlaybackQuality(selectedQualityId);
@@ -1091,6 +1127,127 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
         borderRadius: 'var(--ui-radius-lg)',
       }}
     >
+      {/* Top Navigation & Watch History Bar */}
+      {(previousVideo || nextVideo || (recentWatchedVideos && recentWatchedVideos.length > 0)) && (
+        <div 
+          className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-2.5 border-b text-xs"
+          style={{ 
+            backgroundColor: 'var(--panel-surface)', 
+            borderColor: 'var(--panel-border)' 
+          }}
+        >
+          <div className="flex items-center gap-2">
+            {previousVideo && onBackToPreviousVideo && (
+              <button
+                type="button"
+                onClick={onBackToPreviousVideo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/10 shadow-xs"
+                style={{
+                  backgroundColor: 'var(--panel-bg)',
+                  borderColor: 'var(--panel-border)',
+                  color: 'var(--text-primary)',
+                }}
+                title={`${t.backToPreviousVideo}: ${previousVideo.title}`}
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="font-bold">{t.backToPreviousVideo}</span>
+                <span className="hidden sm:inline font-normal truncate max-w-[180px] md:max-w-xs text-slate-400">
+                  ({previousVideo.title})
+                </span>
+              </button>
+            )}
+
+            {nextVideo && onForwardVideo && (
+              <button
+                type="button"
+                onClick={onForwardVideo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/10 shadow-xs"
+                style={{
+                  backgroundColor: 'var(--panel-bg)',
+                  borderColor: 'var(--panel-border)',
+                  color: 'var(--text-primary)',
+                }}
+                title={`${t.navNextVideo}: ${nextVideo.title}`}
+              >
+                <span>{t.navNextVideo}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Recent Watched Videos Dropdown */}
+          {recentWatchedVideos && recentWatchedVideos.length > 0 && onSelectRecentVideo && (
+            <div className="relative" ref={recentMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsRecentMenuOpen(prev => !prev)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors cursor-pointer hover:opacity-85"
+                style={{
+                  backgroundColor: 'var(--panel-bg)',
+                  borderColor: 'var(--panel-border)',
+                  color: 'var(--text-muted)',
+                }}
+                title={t.recentWatched}
+              >
+                <History className="w-3.5 h-3.5 text-amber-500" />
+                <span className="hidden sm:inline">{t.recentWatched}</span>
+                <span className="px-1.5 py-0.2 rounded-full font-mono text-[10px] bg-black/15 dark:bg-white/10 font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {recentWatchedVideos.length}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+
+              {isRecentMenuOpen && (
+                <div 
+                  className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 rounded-xl border shadow-2xl p-2 z-50 divide-y"
+                  style={{
+                    backgroundColor: 'var(--panel-bg)',
+                    borderColor: 'var(--panel-border)',
+                    boxShadow: 'var(--panel-shadow)',
+                  }}
+                >
+                  <div className="px-2 py-1 pb-2 flex items-center justify-between text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                    <span>{t.recentWatched}</span>
+                    <span className="text-[10px] font-normal text-slate-400 font-mono">
+                      {recentWatchedVideos.length} {lang === 'cs' ? 'videí' : 'videos'}
+                    </span>
+                  </div>
+                  <div className="pt-1 max-h-60 overflow-y-auto space-y-1">
+                    {recentWatchedVideos.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setIsRecentMenuOpen(false);
+                          onSelectRecentVideo(item.url);
+                        }}
+                        className="w-full flex items-center gap-2.5 p-1.5 rounded-lg text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer group"
+                      >
+                        <img
+                          src={item.thumbnailUrl}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-7 rounded object-cover shrink-0 border"
+                          style={{ borderColor: 'var(--panel-border)' }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium truncate group-hover:text-amber-500 transition-colors" style={{ color: 'var(--text-primary)' }}>
+                            {item.title}
+                          </p>
+                          <p className="text-[10px] truncate text-slate-400">
+                            {item.author} {item.duration ? `· ${item.duration}` : ''}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Video Header & Media Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-6">
         {/* Thumbnail or ReactPlayer HTML5 Video Player Preview */}
@@ -1536,6 +1693,18 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
                   style={{ borderColor: 'var(--panel-border)' }}
                 >
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Previous Video in player */}
+                    {previousVideo && onBackToPreviousVideo && (
+                      <button
+                        type="button"
+                        onClick={onBackToPreviousVideo}
+                        className="inline-flex items-center justify-center p-2 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-all cursor-pointer shadow-xs"
+                        title={`${t.backToPreviousVideo}: ${previousVideo.title}`}
+                      >
+                        <SkipBack className="w-3.5 h-3.5 text-amber-400" />
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={togglePlayPause}
@@ -1561,6 +1730,18 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
                         </>
                       )}
                     </button>
+
+                    {/* Next Video in player */}
+                    {nextVideo && onForwardVideo && (
+                      <button
+                        type="button"
+                        onClick={onForwardVideo}
+                        className="inline-flex items-center justify-center p-2 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-all cursor-pointer shadow-xs"
+                        title={`${t.navNextVideo}: ${nextVideo.title}`}
+                      >
+                        <SkipForward className="w-3.5 h-3.5 text-amber-400" />
+                      </button>
+                    )}
 
                     <button
                       type="button"

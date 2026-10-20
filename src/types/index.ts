@@ -115,6 +115,18 @@ export interface SearchResponse {
   sortBy?: 'date' | 'relevance';
 }
 
+export interface WatchHistoryItem {
+  id: string;
+  videoId: string;
+  url: string;
+  title: string;
+  author: string;
+  thumbnailUrl: string;
+  duration?: string;
+  timestamp: number;
+  platform?: MediaPlatform;
+}
+
 export interface DownloadHistoryItem {
   id: string;
   videoId: string;
