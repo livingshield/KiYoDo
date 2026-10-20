@@ -149,7 +149,7 @@ if (Test-Path $publishDir) {
     try { Upload-FtpText "<html><body>Updating</body></html>" "ftp://$ftpServer/www/app_offline.htm" } catch {}
     Start-Sleep -Seconds 2
 
-    $backendFiles = @("KikiAI.dll", "YoutubeExplode.dll", "BCrypt.Net-Next.dll", "KikiAI.deps.json")
+    $backendFiles = @("KikiAI.dll", "YoutubeExplode.dll", "BCrypt.Net-Next.dll", "KikiAI.deps.json", "web.config")
     foreach ($bf in $backendFiles) {
         $localBf = Join-Path $publishDir $bf
         if (Test-Path $localBf) {
